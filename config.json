@@ -1,0 +1,11 @@
+{
+  "pitchThreshold": 110.0,
+  "rollThreshold": 110.0,
+  "yawThreshold": 110.0,
+  "hysteresisBuffer": 5.0,
+  "priority": [ "Pitch" ],
+  "pitchAudioFile": "audio/pitch.mp3",
+  "rollAudioFile": "audio/roll.mp3",
+  "yawAudioFile": "audio/yaw.mp3",
+  "reportIntervalMs": 50
+}
