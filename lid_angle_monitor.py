@@ -14,6 +14,7 @@ class LidAngleMonitor:
         self._audio = AudioAlarm()
         self._active_alarm = AlarmAxis.NONE
         self._running = False
+        self._baseline: tuple[float, float, float] | None = None
 
         # Parse priority list from config strings to AlarmAxis enum
         axis_map = {"pitch": AlarmAxis.PITCH, "roll": AlarmAxis.ROLL, "yaw": AlarmAxis.YAW}
@@ -32,6 +33,15 @@ class LidAngleMonitor:
         min_interval = self._inclinometer.minimum_report_interval
         self._inclinometer.report_interval = max(self._config.report_interval_ms, min_interval)
 
+        # Capture the baseline position
+        reading = self._inclinometer.get_current_reading()
+        if reading is not None:
+            self._baseline = (reading.pitch_degrees, reading.roll_degrees, reading.yaw_degrees)
+            print(f"Baseline captured -> Pitch: {self._baseline[0]:.2f}°  Roll: {self._baseline[1]:.2f}°  Yaw: {self._baseline[2]:.2f}°")
+        else:
+            self._baseline = (0.0, 0.0, 0.0)
+            print("Could not read baseline, assuming (0, 0, 0).")
+
         self._running = True
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._thread.start()
@@ -49,9 +59,15 @@ class LidAngleMonitor:
             time.sleep(interval)
 
     def _process_reading(self, pitch: float, roll: float, yaw: float) -> None:
+        # Compute deltas relative to baseline
+        bp, br, by = self._baseline
+        dp = pitch - bp
+        dr = roll - br
+        dy = yaw - by
+
         # If an alarm is active, check if it resolved (below threshold - hysteresis)
         if self._active_alarm != AlarmAxis.NONE:
-            value = self._get_axis_value(self._active_alarm, pitch, roll, yaw)
+            value = self._get_axis_value(self._active_alarm, dp, dr, dy)
             resolve_at = (
                 self._config.get_threshold(self._active_alarm)
                 - self._config.hysteresis_buffer
@@ -63,7 +79,7 @@ class LidAngleMonitor:
         # If no alarm active, check axes in priority order for a breach
         if self._active_alarm == AlarmAxis.NONE:
             for axis in self._priority_order:
-                value = self._get_axis_value(axis, pitch, roll, yaw)
+                value = self._get_axis_value(axis, dp, dr, dy)
                 threshold = self._config.get_threshold(axis)
                 if abs(value) >= threshold:
                     self._active_alarm = axis
@@ -71,7 +87,7 @@ class LidAngleMonitor:
                     self._audio.play(audio_file)
                     break
 
-        self._print_reading(pitch, roll, yaw)
+        self._print_reading(dp, dr, dy)
 
     @staticmethod
     def _get_axis_value(axis: AlarmAxis, pitch: float, roll: float, yaw: float) -> float:
@@ -81,14 +97,14 @@ class LidAngleMonitor:
             AlarmAxis.YAW: yaw,
         }.get(axis, 0.0)
 
-    def _print_reading(self, pitch: float, roll: float, yaw: float) -> None:
+    def _print_reading(self, d_pitch: float, d_roll: float, d_yaw: float) -> None:
         if self._active_alarm != AlarmAxis.NONE:
             status = f"ALARM: {self._active_alarm.value}"
         else:
             status = "OK"
 
         sys.stdout.write(
-            f"\rPitch: {pitch:7.2f}\u00b0  |  Roll: {roll:7.2f}\u00b0  |  Yaw: {yaw:7.2f}\u00b0  |  [{status}]    "
+            f"\r\u0394Pitch: {d_pitch:7.2f}\u00b0  |  \u0394Roll: {d_roll:7.2f}\u00b0  |  \u0394Yaw: {d_yaw:7.2f}\u00b0  |  [{status}]    "
         )
         sys.stdout.flush()
 
